@@ -1,0 +1,1 @@
+add_subdirectory(STM32F10x_StdPeriph_Driver)

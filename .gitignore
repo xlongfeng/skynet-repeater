@@ -51,8 +51,12 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
-/Debug/
 
 # Git Files
 !.gitignore
 !.mailmap
+
+# Atollic TrueStudio Files
+*.launch
+/Debug/
+/Release/
