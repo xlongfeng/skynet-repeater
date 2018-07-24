@@ -46,6 +46,10 @@ extern int32_t errno;
 uint8_t *__env[1] = { 0 };
 uint8_t **environ = __env;
 
+__attribute__((weak)) int stdoutWrite(uint8_t *ptr, int32_t len)
+{
+	return len;
+}
 
 /* Functions */
 void initialise_monitor_handles()
@@ -79,6 +83,9 @@ int _write(int32_t file, uint8_t *ptr, int32_t len)
 {
 	/* Implement your write code here, this is used by puts and printf for example */
 	/* return len; */
+	if (file == 1) {
+		return stdoutWrite(ptr, len);
+	}
 	
 	errno = ENOSYS;
 	return -1;

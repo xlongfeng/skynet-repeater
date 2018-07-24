@@ -6,10 +6,11 @@ set(EXEC_LINK_FLAGS "-lc -lm -Wl,--gc-sections -T${LINK_SCRIPT} -static -Wl,--st
 add_executable(repeater
 	startup_stm32f10x_md.s
 	system_stm32f10x.c
-	stm32f1xx_it.c
 	main.c
 	syscalls.c
 	tiny_printf.c
+	fullduplexuart.c
+	halfduplexuart.c
 	)
 
 target_link_libraries(repeater stdperiph freertos)

@@ -38,27 +38,38 @@
 #include "timers.h"
 #include "semphr.h"
 
-static void ledTask(void *pvParameters)
-{
-	portTickType xNextWakeTime;
+#include "uart.h"
 
-	xNextWakeTime = xTaskGetTickCount();
-
-	for (;;)
-	{
-		GPIO_WriteBit(GPIOC, GPIO_Pin_13, Bit_SET);
-		vTaskDelayUntil(&xNextWakeTime, 200 / portTICK_RATE_MS);
-		GPIO_WriteBit(GPIOC, GPIO_Pin_13, Bit_RESET);
-		vTaskDelayUntil(&xNextWakeTime, 500 / portTICK_RATE_MS);
-	}
-}
-
-int main(void)
+static void hardwareInitialize(void)
 {
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE);
+
+	/* Configure the NVIC Preemption Priority Bits */
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);
+
+	fullDuplexUartInitialize();
+	halfDuplexUartInitialize();
+}
+
+typedef enum {
+	BLINK_PATTERN_DISCONNECTED,
+	BLINK_PATTERN_CONNECTED
+} BlinkPattern;
+
+static BlinkPattern blinkPattern = BLINK_PATTERN_DISCONNECTED;
+
+#define HEARTBEAT_PERIOD	1260
+
+static void ledTask(void *pvParameters)
+{
+	uint8_t phase = 0;
+	BitAction value;
+	portTickType delayTime;
 
 	GPIO_InitTypeDef gpioInitStructure;
 	gpioInitStructure.GPIO_Pin = GPIO_Pin_13;
@@ -66,11 +77,102 @@ int main(void)
 	gpioInitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
 	GPIO_Init(GPIOC, &gpioInitStructure);
 
+	portTickType xNextWakeTime = xTaskGetTickCount();
+
+	for (;;) {
+		switch(blinkPattern) {
+		case BLINK_PATTERN_DISCONNECTED:
+			switch(phase) {
+				case 0:
+					++phase;
+					delayTime = pdMS_TO_TICKS(1200);
+					value = Bit_RESET;
+					break;
+				default:
+					phase = 0;
+					delayTime = pdMS_TO_TICKS(300);
+					value = Bit_SET;
+					break;
+				}
+				break;
+			break;
+		case BLINK_PATTERN_CONNECTED:
+			switch(phase) {
+			case 0:
+				++phase;
+				delayTime = pdMS_TO_TICKS(70);
+				value = Bit_RESET;
+				break;
+			case 1:
+				++phase;
+				delayTime = pdMS_TO_TICKS(HEARTBEAT_PERIOD/4) - pdMS_TO_TICKS(70);
+				value = Bit_SET;
+				break;
+			case 2:
+				++phase;
+				delayTime = pdMS_TO_TICKS(70);
+				value = Bit_RESET;
+				break;
+			default:
+				phase = 0;
+				delayTime = pdMS_TO_TICKS(HEARTBEAT_PERIOD) - pdMS_TO_TICKS(HEARTBEAT_PERIOD/4) - pdMS_TO_TICKS(70);
+				value = Bit_SET;
+				break;
+			}
+			break;
+		default:
+			break;
+		}
+		GPIO_WriteBit(GPIOC, GPIO_Pin_13, value);
+		vTaskDelayUntil(&xNextWakeTime, delayTime);
+	}
+}
+
+static void disconnectTimer(TimerHandle_t xTimer)
+{
+	blinkPattern = BLINK_PATTERN_DISCONNECTED;
+}
+
+static void mainTask(void *pvParameters)
+{
+	static uint8_t buf[32+1];
+
 	xTaskCreate(ledTask, "LED",
-			configMINIMAL_STACK_SIZE,
-			NULL,
-			2,
-			NULL);
+				configMINIMAL_STACK_SIZE,
+				NULL,
+				1,
+				NULL);
+
+	TimerHandle_t timer = xTimerCreate("Timer",
+			pdMS_TO_TICKS(3000),
+			pdTRUE,
+			0,
+			disconnectTimer);
+	xTimerStart(timer, pdMS_TO_TICKS(10));
+
+	for (;;) {
+		int ret = fullDuplexUartRead(buf, 32);
+		if (ret > 0) {
+			halfDuplexUartWrite(buf, ret);
+			blinkPattern = BLINK_PATTERN_CONNECTED;
+			xTimerReset(timer, pdMS_TO_TICKS(10));
+		}
+		ret = halfDuplexUartRead(buf, 32);
+		if (ret > 0) {
+			fullDuplexUartWrite(buf, ret);
+		}
+	}
+}
+
+int main(void)
+{
+	hardwareInitialize();
+
+	xTaskCreate(mainTask, "Main",
+					configMINIMAL_STACK_SIZE,
+					NULL,
+					0,
+					NULL);
 
 	vTaskStartScheduler();
 

@@ -3,7 +3,7 @@ default_target: all
 .PHONY : default_target
 
 all: Debug/Makefile
-	$(MAKE) -C Debug VERBOSE=1
+	$(MAKE) -C Debug
 
 .PHONY : all
 
