@@ -40,8 +40,33 @@
 
 #include "uart.h"
 
+static const uint32_t LsiFreq = 40000;
+
 static void hardwareInitialize(void)
 {
+	if (RCC_GetFlagStatus(RCC_FLAG_IWDGRST) != RESET) {
+	    /* IWDGRST flag set, clear reset flags */
+	    RCC_ClearFlag();
+	}
+	/* IWDG timeout equal to 8s (the timeout may varies due to LSI frequency dispersion) */
+	/* Enable write access to IWDG_PR and IWDG_RLR registers */
+	IWDG_WriteAccessCmd(IWDG_WriteAccess_Enable);
+	/* IWDG counter clock: LSI/128 */
+	IWDG_SetPrescaler(IWDG_Prescaler_128);
+
+	/* Set counter reload value to obtain 4s IWDG TimeOut.
+	   Counter Reload Value = 8s/IWDG counter clock period
+						    = 8s / (LSI/128)
+						    = 8s / (LsiFreq/128)
+						    = LsiFreq / (128 / 8)
+						    = LsiFreq / 16
+     */
+	IWDG_SetReload(LsiFreq/(128 / 8));
+	/* Reload IWDG counter */
+	IWDG_ReloadCounter();
+	/* Enable IWDG (the LSI oscillator will be enabled by hardware) */
+	IWDG_Enable();
+
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
@@ -125,6 +150,8 @@ static void ledTask(void *pvParameters)
 		}
 		GPIO_WriteBit(GPIOC, GPIO_Pin_13, value);
 		vTaskDelayUntil(&xNextWakeTime, delayTime);
+		/* Reload IWDG counter */
+		IWDG_ReloadCounter();
 	}
 }
 
